@@ -1,0 +1,476 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Image Viewer (Touch)</title>
+    <style>
+        /* CSS (Giữ nguyên như cũ) */
+        * {
+            margin: 0; padding: 0; box-sizing: border-box;
+            -webkit-tap-highlight-color: transparent;
+        }
+        body {
+            background-color: #121212; color: #ccc;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            height: 100vh; width: 100vw;
+            display: flex; flex-direction: column;
+            align-items: center; justify-content: center;
+            overflow: hidden;
+        }
+        #welcomeScreen {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            background: #121212; display: flex; flex-direction: column;
+            align-items: center; justify-content: center;
+            z-index: 9999; padding: 20px;
+        }
+        .upload-btn {
+            padding: 20px 40px; background: #333; color: white;
+            font-size: 18px; border-radius: 12px; cursor: pointer;
+            border: 1px solid #555; text-align: center;
+        }
+        .upload-btn:active { background: #555; }
+        input[type="file"] { display: none; }
+        #errorMsg { margin-top: 20px; color: #d32f2f; font-size: 14px; text-align: center; }
+        #gameUI {
+            display: none; width: 100%; height: 100%;
+            flex-direction: column; align-items: center;
+            justify-content: center; position: relative;
+        }
+        #viewport {
+            width: 100%; height: 100%; background-color: #000;
+            position: relative; overflow: hidden; cursor: none;
+        }
+        #stage {
+            position: absolute; top: 0; left: 0;
+            transform-origin: 0 0; background-repeat: no-repeat;
+            background-size: 100% 100%;
+        }
+        canvas { display: block; transition: opacity 0.1s; transform: translateZ(0); }
+        #statusMsg {
+            position: absolute; top: 50%; left: 50%;
+            transform: translate(-50%, -50%);
+            background: rgba(0,0,0,0.8); color: white;
+            padding: 10px 20px; border-radius: 5px;
+            display: none; z-index: 200;
+        }
+        .toolbar-wrapper {
+            position: fixed; bottom: 0; left: 0; width: 100%;
+            display: flex; justify-content: center;
+            z-index: 100; transition: transform 0.3s ease-out;
+        }
+        .toolbar-wrapper.hidden { transform: translateY(100%); }
+        .toolbar {
+            display: flex; gap: 10px; align-items: center; justify-content: center;
+            background: rgba(30, 30, 30, 0.9); backdrop-filter: blur(10px);
+            padding: 12px; margin: 0 10px 10px 10px;
+            border-radius: 12px; border: 1px solid #444;
+            box-shadow: 0 -5px 15px rgba(0,0,0,0.2); flex-wrap: wrap;
+        }
+        .toolbar-group {
+            display: flex; gap: 10px; align-items: center;
+            border-right: 1px solid #555; padding-right: 10px;
+        }
+        .toolbar-group:last-child { border-right: none; padding-right: 0; }
+        .touch-btn {
+            font-size: 20px; background: #555; color: #fff; border: none;
+            width: 44px; height: 44px; border-radius: 50%;
+            cursor: pointer; display: flex; align-items: center; justify-content: center;
+        }
+        .touch-btn:active { background: #777; }
+        .btn-danger { background: #7c2a2a; }
+        .btn-danger:active { background: #a53a3a; }
+        #hideUIBtn {
+            position: absolute; bottom: 10px; right: 10px;
+            z-index: 99; background: #444; opacity: 0.5;
+        }
+        #showUIBtn {
+            position: fixed; bottom: 10px; right: 10px;
+            z-index: 99; display: none;
+        }
+        .image-info { 
+            font-family: monospace; color: #eee; font-weight: bold;
+            font-size: 14px; padding: 0 10px;
+        }
+    </style>
+</head>
+<body>
+
+    <div id="welcomeScreen">
+        <label class="upload-btn">
+            📂 Chọn Ảnh
+            <p style="font-size: 12px; color: #999; margin-top: 5px;">(Vào album QP, KB... và chọn tất cả ảnh 1o, 1e...)</p>
+            <input type="file" id="fileInput" multiple>
+        </label>
+        <div id="errorMsg"></div>
+    </div>
+
+    <div id="gameUI">
+        <div id="statusMsg">Loading...</div>
+
+        <div id="viewport">
+            <div id="stage">
+                <canvas id="gameCanvas"></canvas>
+            </div>
+        </div>
+        
+        <button class="touch-btn" id="hideUIBtn" title="Ẩn UI" onclick="toggleUI(false)">⬇️</button>
+        <button class="touch-btn" id="showUIBtn" title="Hiện UI" onclick="toggleUI(true)">⬆️</button>
+
+        <div class="toolbar-wrapper" id="toolbarWrapper">
+            <div class="toolbar">
+                <div class="toolbar-group">
+                    <button class="touch-btn btn-danger" onclick="location.reload()" title="Đổi Folder">🚪</button>
+                    <button class="touch-btn" onclick="prevImage()" title="Ảnh trước">⬅️</button>
+                    <div class="image-info" id="imgCounter">--</div>
+                    <button class="touch-btn" onclick="nextImage()" title="Ảnh sau">➡️</button>
+                </div>
+                <div class="toolbar-group">
+                    <button class="touch-btn" id="toolBtn" onclick="toggleTool()" title="Đổi Tool">🔎</button>
+                    <button class="touch-btn" id="viewBtn" ontouchstart="toggleView(true)" ontouchend="toggleView(false)" title="Giữ để xem Edit">👀</button>
+                </div>
+                <div class="toolbar-group">
+                    <button class="touch-btn" onclick="changeBrushSize(-20)" title="Giảm Cỡ">-</button>
+                    <span id="brushSizeDisplay" style="font-size: 14px; color: #999;">50px</span>
+                    <button class="touch-btn" onclick="changeBrushSize(20)" title="Tăng Cỡ">+</button>
+                </div>
+                <div class="toolbar-group">
+                    <button class="touch-btn" onclick="doZoom(false)" title="Thu nhỏ">➖</button>
+                    <button class="touch-btn" onclick="resetView()" title="Reset View">🎯</button>
+                    <button class="touch-btn" onclick="doZoom(true)" title="Phóng to">➕</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+    let filePairs = [];
+    let currentIndex = 0;
+
+    const welcomeScreen = document.getElementById('welcomeScreen');
+    const gameUI = document.getElementById('gameUI');
+    const folderInput = document.getElementById('fileInput'); // Sửa lại ID cho đúng
+    const errorMsg = document.getElementById('errorMsg');
+    const statusMsg = document.getElementById('statusMsg');
+
+    const viewport = document.getElementById('viewport');
+    const stage = document.getElementById('stage');
+    const canvas = document.getElementById('gameCanvas');
+    const ctx = canvas.getContext('2d');
+    const slider = document.getElementById('brushSizeSlider');
+    const cursorPreview = document.getElementById('cursorPreview');
+    const imgCounter = document.getElementById('imgCounter');
+    const modeLabel = document.getElementById('modeLabel');
+
+    const imgOriginal = new Image();
+    let brushSize = 50;
+    let scale = 1; let panX = 0; let panY = 0;
+    let isDrawing = false;
+    let isSpacePressed = false; let isDragging = false;
+    let lastMX = 0; let lastMY = 0;
+    let isSwitching = false;
+    let isCtrlPressed = false; // Trạng thái phím Ctrl
+
+    let currentTool = 'loupe';
+    let drawMode = 'erase';
+
+    // --- CHỌN FOLDER ---
+    folderInput.addEventListener('change', (e) => {
+        const files = Array.from(e.target.files);
+        let map = {};
+        
+        // === SỬA LỖI Ở DÒNG NÀY ===
+        // Bỏ dấu ^ (bắt đầu) để nó tìm file linh hoạt hơn
+        const fileRegex = /(\d+)(o|e)\.(jpg|jpeg|png|webp)$/i; 
+
+        files.forEach(f => {
+            let m = f.name.toLowerCase().match(fileRegex);
+            if (m) {
+                // m[0] là full match, m[1] là số, m[2] là o/e
+                let id = parseInt(m[1]); 
+                let type = m[2].toLowerCase();
+                if (!map[id]) map[id] = {};
+                
+                // Tránh ghi đè nếu lỡ có file 1o.jpg và file IMG_1o.jpg
+                // Ưu tiên file có tên ngắn hơn
+                if (!map[id][type] || f.name.length < map[id][type].name.length) {
+                    map[id][type] = f;
+                }
+            }
+        });
+        
+        filePairs = [];
+        for (let id in map) {
+            if (map[id].o && map[id].e) {
+                filePairs.push({ id: parseInt(id), o: map[id].o, e: map[id].e });
+            }
+        }
+        filePairs.sort((a, b) => a.id - b.id);
+
+        if (filePairs.length > 0) {
+            welcomeScreen.style.display = 'none';
+            gameUI.style.display = 'flex';
+            currentIndex = 0;
+            loadPair(currentIndex);
+        } else {
+            errorMsg.innerText = "Không tìm thấy cặp ảnh nào (ví dụ: 1o.jpg và 1e.jpg)";
+        }
+    });
+
+    // --- LOAD ẢNH ---
+    function loadPair(idx) {
+        if (idx < 0 || idx >= filePairs.length) return;
+        statusMsg.style.display = 'block';
+        const item = filePairs[idx];
+        const urlO = URL.createObjectURL(item.o);
+        const urlE = URL.createObjectURL(item.e);
+
+        const temp = new Image();
+        temp.src = urlO;
+        temp.onload = () => {
+            imgOriginal.src = urlO;
+            imgCounter.innerText = `${item.id} (${idx + 1}/${filePairs.length})`;
+            imgOriginal.onload = () => {
+                canvas.width = imgOriginal.naturalWidth;
+                canvas.height = imgOriginal.naturalHeight;
+                stage.style.width = canvas.width + "px";
+                stage.style.height = canvas.height + "px";
+                stage.style.backgroundImage = `url('${urlE}')`;
+                resetView();
+                drawFullOriginal();
+                statusMsg.style.display = 'none';
+                isSwitching = false;
+            }
+        };
+    }
+
+    function drawFullOriginal() {
+        ctx.globalCompositeOperation = 'source-over';
+        ctx.drawImage(imgOriginal, 0, 0);
+    }
+
+    function resetView() {
+        const vW = viewport.clientWidth; const vH = viewport.clientHeight;
+        const sW = vW / canvas.width; const sH = vH / canvas.height;
+        scale = Math.min(sW, sH, 1) * 0.95;
+        panX = (vW - canvas.width * scale) / 2;
+        panY = (vH - canvas.height * scale) / 2;
+        updateTransform();
+        updateCursor();
+    }
+
+    function updateTransform() { stage.style.transform = `translate(${panX}px, ${panY}px) scale(${scale})`; }
+
+    function updateCursor() {
+        const visualSize = brushSize * scale;
+        cursorPreview.style.width = visualSize + 'px';
+        cursorPreview.style.height = visualSize + 'px';
+        
+        if (isCtrlPressed) {
+            modeLabel.innerText = "ĐANG XEM EDIT (CTRL)";
+            modeLabel.style.color = "#ff9800";
+            cursorPreview.style.borderColor = "#ff9800";
+        } else if (currentTool === 'loupe') {
+            modeLabel.innerText = "KÍNH LÚP";
+            modeLabel.style.color = '#00e5ff';
+            cursorPreview.style.borderColor = '#00e5ff';
+        } else {
+            modeLabel.innerText = "CỤC TẨY";
+            modeLabel.style.color = '#fff';
+            cursorPreview.style.borderColor = '#fff';
+        }
+    }
+
+    // --- CÁC HÀM HỖ TRỢ MỚI ---
+    function changeBrushSize(amount) {
+        brushSize += amount;
+        if (brushSize < 10) brushSize = 10;
+        if (brushSize > 1000) brushSize = 1000;
+        
+        slider.value = brushSize; // Cập nhật thanh slider
+        updateCursor(); // Cập nhật vòng tròn
+    }
+
+    function nextImage() {
+        if (isSwitching) return;
+        if (currentIndex < filePairs.length - 1) {
+            isSwitching = true;
+            currentIndex++;
+            loadPair(currentIndex);
+        }
+    }
+
+    function prevImage() {
+        if (isSwitching) return;
+        if (currentIndex > 0) {
+            isSwitching = true;
+            currentIndex--;
+            loadPair(currentIndex);
+        }
+    }
+
+    function toggleTool() {
+        currentTool = (currentTool === 'loupe') ? 'eraser' : 'loupe';
+        if (currentTool === 'loupe') drawFullOriginal();
+        updateCursor();
+    }
+
+    // --- CẬP NHẬT INPUT ---
+    slider.oninput = function() {
+        brushSize = parseInt(this.value);
+        updateCursor();
+    }
+
+    function getPos(e) {
+        const r = viewport.getBoundingClientRect();
+        return { x: (e.clientX - r.left - panX) / scale, y: (e.clientY - r.top - panY) / scale };
+    }
+
+    function applyTool(e) {
+        const p = getPos(e);
+        const r = brushSize / 2;
+
+        if (currentTool === 'loupe') {
+            ctx.globalCompositeOperation = 'source-over';
+            ctx.drawImage(imgOriginal, 0, 0);
+            ctx.globalCompositeOperation = 'destination-out';
+            ctx.beginPath(); ctx.arc(p.x, p.y, r, 0, Math.PI*2); ctx.fill();
+        } else {
+            ctx.beginPath(); ctx.arc(p.x, p.y, r, 0, Math.PI*2);
+            if (drawMode === 'restore') {
+                ctx.globalCompositeOperation = 'source-over';
+                ctx.save(); ctx.clip(); ctx.drawImage(imgOriginal, 0, 0); ctx.restore();
+            } else {
+                ctx.globalCompositeOperation = 'destination-out'; ctx.fill();
+            }
+        }
+    }
+
+    // --- XỬ LÝ PHÍM (KEYBOARD) ---
+    window.addEventListener('keydown', e => {
+        if (welcomeScreen.style.display !== 'none') return;
+
+        if (e.key === 'Tab') {
+            e.preventDefault();
+            toggleTool();
+        }
+        if (e.code === 'Space' && !isSpacePressed) {
+            isSpacePressed = true;
+            viewport.classList.add('grabbing');
+            cursorPreview.style.display = 'none';
+        }
+        if ((e.key === 'Control' || e.key === 'Meta') && !isCtrlPressed) {
+            isCtrlPressed = true;
+            canvas.style.opacity = '0';
+            cursorPreview.style.display = 'none';
+            updateCursor();
+        }
+        
+        if (document.activeElement === slider) return;
+
+        if (e.key === 'ArrowRight') { e.preventDefault(); nextImage(); }
+        if (e.key === 'ArrowLeft') { e.preventDefault(); prevImage(); }
+        if (e.key === 'ArrowUp') { e.preventDefault(); changeBrushSize(5); }
+        if (e.key === 'ArrowDown') { e.preventDefault(); changeBrushSize(-5); }
+    });
+
+    window.addEventListener('keyup', e => {
+        if (e.code === 'Space') {
+            isSpacePressed = false; isDragging = false;
+            viewport.classList.remove('grabbing');
+            if (viewport.matches(':hover') && !isCtrlPressed) cursorPreview.style.display = 'block';
+        }
+        if (e.key === 'Control' || e.key === 'Meta') {
+            isCtrlPressed = false;
+            canvas.style.opacity = '1';
+            if (viewport.matches(':hover')) cursorPreview.style.display = 'block';
+            updateCursor();
+        }
+    });
+
+    // --- CHUỘT ---
+    viewport.addEventListener('mousedown', e => {
+        
+        if (e.button === 1) { // Chuột giữa
+            e.preventDefault();
+            toggleTool();
+            return;
+        }
+
+        if (isSpacePressed) {
+            isDragging = true; lastMX = e.clientX; lastMY = e.clientY;
+        } else {
+            if (!isCtrlPressed) {
+                isDrawing = true;
+                drawMode = (e.button === 2) ? 'restore' : 'erase';
+                if (currentTool === 'eraser') applyTool(e);
+            }
+        }
+    });
+
+    window.addEventListener('mousemove', e => {
+        cursorPreview.style.left = e.clientX + 'px';
+        cursorPreview.style.top = e.clientY + 'px';
+
+        if (isDragging && isSpacePressed) {
+            panX += (e.clientX - lastMX); panY += (e.clientY - lastMY);
+            lastMX = e.clientX; lastMY = e.clientY;
+            updateTransform();
+        } else {
+            if (!isCtrlPressed && !isSpacePressed) {
+                if (currentTool === 'loupe' && (e.target === stage || e.target === canvas)) applyTool(e);
+                else if (currentTool === 'eraser' && isDrawing) applyTool(e);
+            }
+        }
+    });
+
+    window.addEventListener('mouseup', () => isDrawing = false);
+    viewport.addEventListener('mouseenter', () => {
+        if (!isSpacePressed && !isCtrlPressed) cursorPreview.style.display='block';
+    });
+    viewport.addEventListener('mouseleave', () => {
+        cursorPreview.style.display='none';
+        if(currentTool === 'loupe') drawFullOriginal();
+    });
+    
+    viewport.addEventListener('contextmenu', e => e.preventDefault());
+
+    // --- SCROLL ---
+    viewport.addEventListener('wheel', e => {
+        e.preventDefault();
+        
+        if (e.shiftKey) {
+            changeBrushSize(e.deltaY < 0 ? 10 : -10);
+            return;
+        }
+        if (isSpacePressed) {
+            if (e.deltaY > 0) { nextImage(); } else { prevImage(); }
+            return;
+        }
+        
+        const zoomDir = e.deltaY < 0 ? 1 : -1;
+        const newScale = scale + (zoomDir * 0.1 * scale);
+        if (newScale >= 0.1 && newScale <= 50) {
+            const rect = viewport.getBoundingClientRect();
+            const mx = e.clientX - rect.left; const my = e.clientY - rect.top;
+            panX = mx - (mx - panX) * (newScale / scale);
+            panY = my - (my - panY) * (newScale / scale);
+            scale = newScale;
+            updateTransform(); updateCursor();
+        }
+    });
+
+    function toggleFullscreen() {
+        if (!document.fullscreenElement) {
+            document.documentElement.requestFullscreen();
+            document.body.classList.add('is-fullscreen');
+        } else {
+            document.exitFullscreen();
+            document.body.classList.remove('is-fullscreen');
+        }
+        setTimeout(resetView, 100);
+    }
+
+</script>
+</body>
+</html>
