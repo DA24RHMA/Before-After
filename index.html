@@ -143,13 +143,14 @@
         </div>
     </div>
 
-    <script>
+<script>
     let filePairs = [];
     let currentIndex = 0;
 
+    // --- DOM Elements ---
     const welcomeScreen = document.getElementById('welcomeScreen');
     const gameUI = document.getElementById('gameUI');
-    const folderInput = document.getElementById('fileInput'); // Sửa lại ID cho đúng
+    const fileInput = document.getElementById('fileInput');
     const errorMsg = document.getElementById('errorMsg');
     const statusMsg = document.getElementById('statusMsg');
 
@@ -157,42 +158,39 @@
     const stage = document.getElementById('stage');
     const canvas = document.getElementById('gameCanvas');
     const ctx = canvas.getContext('2d');
-    const slider = document.getElementById('brushSizeSlider');
-    const cursorPreview = document.getElementById('cursorPreview');
     const imgCounter = document.getElementById('imgCounter');
-    const modeLabel = document.getElementById('modeLabel');
+    const toolBtn = document.getElementById('toolBtn');
+    const brushSizeDisplay = document.getElementById('brushSizeDisplay');
+    const toolbarWrapper = document.getElementById('toolbarWrapper');
+    const hideUIBtn = document.getElementById('hideUIBtn');
+    const showUIBtn = document.getElementById('showUIBtn');
 
+    // --- Logic Vars ---
     const imgOriginal = new Image();
     let brushSize = 50;
     let scale = 1; let panX = 0; let panY = 0;
     let isDrawing = false;
-    let isSpacePressed = false; let isDragging = false;
-    let lastMX = 0; let lastMY = 0;
-    let isSwitching = false;
-    let isCtrlPressed = false; // Trạng thái phím Ctrl
+    let lastPanX = 0; let lastPanY = 0;
 
     let currentTool = 'loupe';
     let drawMode = 'erase';
+    let isSwitching = false;
 
-    // --- CHỌN FOLDER ---
-    folderInput.addEventListener('change', (e) => {
+    // --- CHỌN FILE (Regex đã sửa) ---
+    fileInput.addEventListener('change', (e) => {
         const files = Array.from(e.target.files);
         let map = {};
         
-        // === SỬA LỖI Ở DÒNG NÀY ===
-        // Bỏ dấu ^ (bắt đầu) để nó tìm file linh hoạt hơn
-        const fileRegex = /(\d+)(o|e)\.(jpg|jpeg|png|webp)$/i; 
+        // Regex linh hoạt: tìm bất cứ file nào KẾT THÚC bằng (số)o.jpg hoặc (số)e.jpg
+        const fileRegex = /(\d+)(o|e)\.(jpg|jpeg|png|webp)$/i;
 
         files.forEach(f => {
             let m = f.name.toLowerCase().match(fileRegex);
             if (m) {
-                // m[0] là full match, m[1] là số, m[2] là o/e
                 let id = parseInt(m[1]); 
                 let type = m[2].toLowerCase();
                 if (!map[id]) map[id] = {};
                 
-                // Tránh ghi đè nếu lỡ có file 1o.jpg và file IMG_1o.jpg
-                // Ưu tiên file có tên ngắn hơn
                 if (!map[id][type] || f.name.length < map[id][type].name.length) {
                     map[id][type] = f;
                 }
@@ -217,31 +215,46 @@
         }
     });
 
-    // --- LOAD ẢNH ---
+    // --- LOAD ẢNH (ĐÃ SỬA LỖI RACE CONDITION) ---
     function loadPair(idx) {
-        if (idx < 0 || idx >= filePairs.length) return;
+        if (idx < 0 || idx >= filePairs.length) {
+            isSwitching = false; // Mở khóa nếu lỡ bấm ra ngoài
+            return;
+        }
+        
         statusMsg.style.display = 'block';
         const item = filePairs[idx];
         const urlO = URL.createObjectURL(item.o);
         const urlE = URL.createObjectURL(item.e);
 
-        const temp = new Image();
-        temp.src = urlO;
-        temp.onload = () => {
-            imgOriginal.src = urlO;
-            imgCounter.innerText = `${item.id} (${idx + 1}/${filePairs.length})`;
-            imgOriginal.onload = () => {
-                canvas.width = imgOriginal.naturalWidth;
-                canvas.height = imgOriginal.naturalHeight;
-                stage.style.width = canvas.width + "px";
-                stage.style.height = canvas.height + "px";
-                stage.style.backgroundImage = `url('${urlE}')`;
-                resetView();
-                drawFullOriginal();
-                statusMsg.style.display = 'none';
-                isSwitching = false;
-            }
+        // 1. Gắn hàm xử lý 'onload' cho ảnh CHÍNH (imgOriginal) TRƯỚC
+        imgOriginal.onload = () => {
+            canvas.width = imgOriginal.naturalWidth;
+            canvas.height = imgOriginal.naturalHeight;
+            stage.style.width = canvas.width + "px";
+            stage.style.height = canvas.height + "px";
+            
+            // Chỉ đặt ảnh nền KHI ảnh gốc đã tải xong
+            stage.style.backgroundImage = `url('${urlE}')`;
+            
+            resetView();
+            drawFullOriginal();
+            statusMsg.style.display = 'none';
+            isSwitching = false; // Mở khóa
         };
+
+        // 2. Gắn hàm xử lý lỗi
+        imgOriginal.onerror = () => {
+            statusMsg.style.display = 'none';
+            isSwitching = false;
+            alert(`Lỗi: Không thể tải file ${item.id}o.jpg`);
+        }
+
+        // 3. Cập nhật text (Có thể làm ngay)
+        imgCounter.innerText = `${item.id} (${idx + 1}/${filePairs.length})`;
+        
+        // 4. Ra lệnh tải ảnh (Bây giờ hàm onload đã sẵn sàng)
+        imgOriginal.src = urlO;
     }
 
     function drawFullOriginal() {
@@ -256,54 +269,31 @@
         panX = (vW - canvas.width * scale) / 2;
         panY = (vH - canvas.height * scale) / 2;
         updateTransform();
-        updateCursor();
     }
 
     function updateTransform() { stage.style.transform = `translate(${panX}px, ${panY}px) scale(${scale})`; }
 
-    function updateCursor() {
-        const visualSize = brushSize * scale;
-        cursorPreview.style.width = visualSize + 'px';
-        cursorPreview.style.height = visualSize + 'px';
-        
-        if (isCtrlPressed) {
-            modeLabel.innerText = "ĐANG XEM EDIT (CTRL)";
-            modeLabel.style.color = "#ff9800";
-            cursorPreview.style.borderColor = "#ff9800";
-        } else if (currentTool === 'loupe') {
-            modeLabel.innerText = "KÍNH LÚP";
-            modeLabel.style.color = '#00e5ff';
-            cursorPreview.style.borderColor = '#00e5ff';
-        } else {
-            modeLabel.innerText = "CỤC TẨY";
-            modeLabel.style.color = '#fff';
-            cursorPreview.style.borderColor = '#fff';
-        }
-    }
-
-    // --- CÁC HÀM HỖ TRỢ MỚI ---
+    // --- CÁC NÚT ĐIỀU KHIỂN ---
     function changeBrushSize(amount) {
         brushSize += amount;
         if (brushSize < 10) brushSize = 10;
-        if (brushSize > 1000) brushSize = 1000;
-        
-        slider.value = brushSize; // Cập nhật thanh slider
-        updateCursor(); // Cập nhật vòng tròn
+        if (brushSize > 500) brushSize = 500;
+        brushSizeDisplay.innerText = brushSize + "px";
     }
 
     function nextImage() {
-        if (isSwitching) return;
+        if (isSwitching) return; // Kiểm tra khóa
         if (currentIndex < filePairs.length - 1) {
-            isSwitching = true;
+            isSwitching = true; // Đóng khóa
             currentIndex++;
             loadPair(currentIndex);
         }
     }
 
     function prevImage() {
-        if (isSwitching) return;
+        if (isSwitching) return; // Kiểm tra khóa
         if (currentIndex > 0) {
-            isSwitching = true;
+            isSwitching = true; // Đóng khóa
             currentIndex--;
             loadPair(currentIndex);
         }
@@ -311,24 +301,53 @@
 
     function toggleTool() {
         currentTool = (currentTool === 'loupe') ? 'eraser' : 'loupe';
-        if (currentTool === 'loupe') drawFullOriginal();
-        updateCursor();
+        if (currentTool === 'loupe') {
+            toolBtn.innerText = "🔎";
+            drawFullOriginal();
+        } else {
+            toolBtn.innerText = "🧼";
+        }
+    }
+    
+    function toggleView(showEdit) {
+        canvas.style.opacity = showEdit ? '0' : '1';
     }
 
-    // --- CẬP NHẬT INPUT ---
-    slider.oninput = function() {
-        brushSize = parseInt(this.value);
-        updateCursor();
+    function doZoom(zoomIn) {
+        const zoomDir = zoomIn ? 1 : -1;
+        const zoomIntensity = 0.2;
+        const newScale = scale + (zoomDir * zoomIntensity * scale);
+        if (newScale >= 0.1 && newScale <= 50) {
+            const vW = viewport.clientWidth; const vH = viewport.clientHeight;
+            const mx = vW / 2; const my = vH / 2;
+            panX = mx - (mx - panX) * (newScale / scale);
+            panY = my - (my - panY) * (newScale / scale);
+            scale = newScale;
+            updateTransform();
+        }
+    }
+    
+    function toggleUI(show) {
+        if (show) {
+            toolbarWrapper.classList.remove('hidden');
+            hideUIBtn.style.display = 'block';
+            showUIBtn.style.display = 'none';
+        } else {
+            toolbarWrapper.classList.add('hidden');
+            hideUIBtn.style.display = 'none';
+            showUIBtn.style.display = 'block';
+        }
     }
 
-    function getPos(e) {
+    // --- XỬ LÝ CẢM ỨNG (TOUCH) ---
+    function getPos(touch) {
         const r = viewport.getBoundingClientRect();
-        return { x: (e.clientX - r.left - panX) / scale, y: (e.clientY - r.top - panY) / scale };
+        return { x: (touch.clientX - r.left - panX) / scale, y: (touch.clientY - r.top - panY) / scale };
     }
 
-    function applyTool(e) {
-        const p = getPos(e);
-        const r = brushSize / 2;
+    function applyTool(touch) {
+        const p = getPos(touch);
+        const r = brushSize / 2; 
 
         if (currentTool === 'loupe') {
             ctx.globalCompositeOperation = 'source-over';
@@ -336,141 +355,46 @@
             ctx.globalCompositeOperation = 'destination-out';
             ctx.beginPath(); ctx.arc(p.x, p.y, r, 0, Math.PI*2); ctx.fill();
         } else {
+            ctx.globalCompositeOperation = 'destination-out';
             ctx.beginPath(); ctx.arc(p.x, p.y, r, 0, Math.PI*2);
-            if (drawMode === 'restore') {
-                ctx.globalCompositeOperation = 'source-over';
-                ctx.save(); ctx.clip(); ctx.drawImage(imgOriginal, 0, 0); ctx.restore();
-            } else {
-                ctx.globalCompositeOperation = 'destination-out'; ctx.fill();
-            }
+            ctx.fill();
         }
     }
-
-    // --- XỬ LÝ PHÍM (KEYBOARD) ---
-    window.addEventListener('keydown', e => {
-        if (welcomeScreen.style.display !== 'none') return;
-
-        if (e.key === 'Tab') {
-            e.preventDefault();
-            toggleTool();
-        }
-        if (e.code === 'Space' && !isSpacePressed) {
-            isSpacePressed = true;
-            viewport.classList.add('grabbing');
-            cursorPreview.style.display = 'none';
-        }
-        if ((e.key === 'Control' || e.key === 'Meta') && !isCtrlPressed) {
-            isCtrlPressed = true;
-            canvas.style.opacity = '0';
-            cursorPreview.style.display = 'none';
-            updateCursor();
-        }
-        
-        if (document.activeElement === slider) return;
-
-        if (e.key === 'ArrowRight') { e.preventDefault(); nextImage(); }
-        if (e.key === 'ArrowLeft') { e.preventDefault(); prevImage(); }
-        if (e.key === 'ArrowUp') { e.preventDefault(); changeBrushSize(5); }
-        if (e.key === 'ArrowDown') { e.preventDefault(); changeBrushSize(-5); }
-    });
-
-    window.addEventListener('keyup', e => {
-        if (e.code === 'Space') {
-            isSpacePressed = false; isDragging = false;
-            viewport.classList.remove('grabbing');
-            if (viewport.matches(':hover') && !isCtrlPressed) cursorPreview.style.display = 'block';
-        }
-        if (e.key === 'Control' || e.key === 'Meta') {
-            isCtrlPressed = false;
-            canvas.style.opacity = '1';
-            if (viewport.matches(':hover')) cursorPreview.style.display = 'block';
-            updateCursor();
-        }
-    });
-
-    // --- CHUỘT ---
-    viewport.addEventListener('mousedown', e => {
-        
-        if (e.button === 1) { // Chuột giữa
-            e.preventDefault();
-            toggleTool();
-            return;
-        }
-
-        if (isSpacePressed) {
-            isDragging = true; lastMX = e.clientX; lastMY = e.clientY;
-        } else {
-            if (!isCtrlPressed) {
-                isDrawing = true;
-                drawMode = (e.button === 2) ? 'restore' : 'erase';
-                if (currentTool === 'eraser') applyTool(e);
-            }
-        }
-    });
-
-    window.addEventListener('mousemove', e => {
-        cursorPreview.style.left = e.clientX + 'px';
-        cursorPreview.style.top = e.clientY + 'px';
-
-        if (isDragging && isSpacePressed) {
-            panX += (e.clientX - lastMX); panY += (e.clientY - lastMY);
-            lastMX = e.clientX; lastMY = e.clientY;
-            updateTransform();
-        } else {
-            if (!isCtrlPressed && !isSpacePressed) {
-                if (currentTool === 'loupe' && (e.target === stage || e.target === canvas)) applyTool(e);
-                else if (currentTool === 'eraser' && isDrawing) applyTool(e);
-            }
-        }
-    });
-
-    window.addEventListener('mouseup', () => isDrawing = false);
-    viewport.addEventListener('mouseenter', () => {
-        if (!isSpacePressed && !isCtrlPressed) cursorPreview.style.display='block';
-    });
-    viewport.addEventListener('mouseleave', () => {
-        cursorPreview.style.display='none';
-        if(currentTool === 'loupe') drawFullOriginal();
-    });
     
-    viewport.addEventListener('contextmenu', e => e.preventDefault());
+    viewport.addEventListener('touchstart', e => {
+        if (e.touches.length === 1) {
+            isDrawing = true;
+            drawMode = 'erase';
+            applyTool(e.touches[0]);
+        } else if (e.touches.length === 2) {
+            isDrawing = false;
+            lastPanX = (e.touches[0].clientX + e.touches[1].clientX) / 2;
+            lastPanY = (e.touches[0].clientY + e.touches[1].clientY) / 2;
+        }
+    }, { passive: false });
 
-    // --- SCROLL ---
-    viewport.addEventListener('wheel', e => {
+    viewport.addEventListener('touchmove', e => {
         e.preventDefault();
         
-        if (e.shiftKey) {
-            changeBrushSize(e.deltaY < 0 ? 10 : -10);
-            return;
+        if (isDrawing && e.touches.length === 1) {
+            applyTool(e.touches[0]);
+        } else if (e.touches.length === 2) {
+            const newPanX = (e.touches[0].clientX + e.touches[1].clientX) / 2;
+            const newPanY = (e.touches[0].clientY + e.touches[1].clientY) / 2;
+            panX += (newPanX - lastPanX);
+            panY += (newPanY - lastPanY);
+            lastPanX = newPanX;
+            lastPanY = newPanY;
+            updateTransform();
         }
-        if (isSpacePressed) {
-            if (e.deltaY > 0) { nextImage(); } else { prevImage(); }
-            return;
-        }
-        
-        const zoomDir = e.deltaY < 0 ? 1 : -1;
-        const newScale = scale + (zoomDir * 0.1 * scale);
-        if (newScale >= 0.1 && newScale <= 50) {
-            const rect = viewport.getBoundingClientRect();
-            const mx = e.clientX - rect.left; const my = e.clientY - rect.top;
-            panX = mx - (mx - panX) * (newScale / scale);
-            panY = my - (my - panY) * (newScale / scale);
-            scale = newScale;
-            updateTransform(); updateCursor();
-        }
-    });
+    }, { passive: false });
 
-    function toggleFullscreen() {
-        if (!document.fullscreenElement) {
-            document.documentElement.requestFullscreen();
-            document.body.classList.add('is-fullscreen');
-        } else {
-            document.exitFullscreen();
-            document.body.classList.remove('is-fullscreen');
-        }
-        setTimeout(resetView, 100);
-    }
+    viewport.addEventListener('touchend', e => {
+        isDrawing = false;
+        if (currentTool === 'loupe') drawFullOriginal();
+    });
 
 </script>
 </body>
+
 </html>
