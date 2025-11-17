@@ -3,14 +3,16 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Image Viewer (Touch)</title>
+    <title>Image Viewer Pro (vFinal)</title>
     <style>
         /* CSS Reset cho di động */
         * {
             margin: 0;
             padding: 0;
             box-sizing: border-box;
-            -webkit-tap-highlight-color: transparent; /* Tắt hiệu ứng xám khi bấm */
+            /* Tắt hiệu ứng xám khi bấm và giữ */
+            -webkit-tap-highlight-color: transparent;
+            -webkit-touch-callout: none;
         }
         body {
             background-color: #121212;
@@ -19,7 +21,6 @@
             height: 100vh;
             width: 100vw;
             display: flex;
-            flex-direction: column;
             align-items: center;
             justify-content: center;
             overflow: hidden; /* Chặn cuộn trang */
@@ -38,19 +39,14 @@
             padding: 20px;
         }
         .upload-btn {
-            padding: 20px 40px;
-            background: #333;
-            color: white;
-            font-size: 18px;
-            border-radius: 12px;
-            cursor: pointer;
-            border: 1px solid #555;
-            text-align: center;
+            padding: 20px 40px; background: #333; color: white;
+            font-size: 18px; border-radius: 12px; cursor: pointer;
+            border: 1px solid #555; text-align: center;
         }
         .upload-btn:active { background: #555; }
         input[type="file"] { display: none; }
         #errorMsg { margin-top: 20px; color: #d32f2f; font-size: 14px; text-align: center; }
-
+        
         /* --- GIAO DIỆN CHÍNH --- */
         #gameUI {
             display: none;
@@ -64,7 +60,7 @@
         /* Viewport (Khung nhìn chính) */
         #viewport {
             width: 100%;
-            height: 100%; /* Chiếm full, toolbar đè lên */
+            height: 100%;
             background-color: #000;
             position: relative;
             overflow: hidden;
@@ -81,7 +77,7 @@
             transition: opacity 0.1s;
             transform: translateZ(0); 
         }
-
+        
         #statusMsg {
             position: absolute; top: 50%; left: 50%;
             transform: translate(-50%, -50%);
@@ -89,81 +85,170 @@
             padding: 10px 20px; border-radius: 5px;
             display: none; z-index: 200;
         }
-
-        /* --- THANH CÔNG CỤ CẢM ỨNG --- */
-        .toolbar-wrapper {
+        
+        /* --- CÔNG CỤ HIỂN THỊ (Offset Cursor & Loupe) --- */
+        
+        /* Vòng tròn ảo hiển thị vị trí vẽ (Touch Offset) */
+        #touchCursor {
             position: fixed;
-            bottom: 0; left: 0;
-            width: 100%;
+            pointer-events: none;
+            border: 2px dashed #FFF;
+            box-shadow: 0 0 10px rgba(0,0,0,0.5);
+            border-radius: 50%;
+            transform: translate(-50%, -50%);
+            z-index: 9999;
+            display: none;
+            transition: width 0.1s, height 0.1s, border-color 0.2s;
+        }
+        
+        /* Vòng Kính Lúp (Riêng biệt) */
+        #loupeDiv {
+            position: fixed;
+            pointer-events: none;
+            border: 4px solid #00e5ff;
+            box-shadow: 0 0 15px rgba(0,0,0,0.5);
+            border-radius: 50%;
+            transform: translate(-50%, -50%);
+            z-index: 9998;
+            display: none;
+            overflow: hidden;
+            background-repeat: no-repeat;
+        }
+
+        /* --- THANH CÔNG CỤ DỌC (Sidebar) --- */
+        .sidebar-wrapper {
+            position: fixed;
+            top: 0;
+            right: 0; /* Mặc định bên phải */
+            height: 100%;
             display: flex;
-            justify-content: center;
+            align-items: center;
             z-index: 100;
             transition: transform 0.3s ease-out;
         }
-        .toolbar-wrapper.hidden {
-            transform: translateY(100%);
+        /* Giao diện khi bị ẩn */
+        .sidebar-wrapper.hidden { transform: translateX(100%); }
+        .sidebar-wrapper.left.hidden { transform: translateX(-100%); }
+        
+        /* Khi chuyển sang trái */
+        .sidebar-wrapper.left {
+            right: auto;
+            left: 0;
         }
-
-        .toolbar {
+        
+        /* Thanh bar chính */
+        .sidebar {
             display: flex;
-            gap: 10px;
+            flex-direction: column;
+            gap: 15px;
             align-items: center;
-            justify-content: center;
             background: rgba(30, 30, 30, 0.9);
             backdrop-filter: blur(10px);
-            padding: 12px;
-            margin: 0 10px 10px 10px;
+            padding: 15px;
+            height: auto;
+            max-height: 95%;
             border-radius: 12px;
             border: 1px solid #444;
-            box-shadow: 0 -5px 15px rgba(0,0,0,0.2);
-            flex-wrap: wrap; 
+            box-shadow: 0 5px 15px rgba(0,0,0,0.2);
         }
+        /* Căn lề cho thanh bar */
+        .sidebar-wrapper:not(.left) .sidebar { margin-right: 10px; }
+        .sidebar-wrapper.left .sidebar { margin-left: 10px; }
         
-        .toolbar-group {
-            display: flex;
-            gap: 10px;
-            align-items: center;
-            border-right: 1px solid #555;
-            padding-right: 10px;
+        /* Vạch chia nhóm */
+        .divider {
+            width: 80%;
+            height: 1px;
+            background: #555;
         }
-        .toolbar-group:last-child { border-right: none; padding-right: 0; }
-        
-        .touch-btn {
+
+        /* Nút bấm trên thanh bar */
+        .tool-btn {
             font-size: 20px;
             background: #555;
             color: #fff;
             border: none;
-            width: 44px; height: 44px;
-            border-radius: 50%;
+            width: 44px; height: 44px; /* Chuẩn cảm ứng */
+            border-radius: 8px;
             cursor: pointer;
             display: flex;
             align-items: center;
             justify-content: center;
+            position: relative; /* Để hiện label */
         }
-        .touch-btn:active { background: #777; }
+        .tool-btn:active { background: #777; }
         
-        .btn-danger { background: #7c2a2a; }
-        .btn-danger:active { background: #a53a3a; }
-        
+        /* Nút ẩn/hiện UI */
         #hideUIBtn {
             position: absolute;
-            bottom: 10px; right: 10px;
-            z-index: 99;
-            background: #444;
-            opacity: 0.5;
+            top: 50%;
+            left: -32px; /* Nằm bên mép trái của bar */
+            transform: translateY(-50%);
+            width: 20px; height: 60px;
+            border-radius: 8px 0 0 8px;
+            font-size: 16px;
+            padding: 0;
+            background: #333;
+            border: 1px solid #444;
+            border-right: none;
         }
+        .sidebar-wrapper.left #hideUIBtn {
+            left: auto;
+            right: -32px;
+            border-radius: 0 8px 8px 0;
+            border-right: 1px solid #444;
+            border-left: none;
+        }
+        
+        /* Nút gọi UI ra (khi bị ẩn) */
         #showUIBtn {
             position: fixed;
-            bottom: 10px; right: 10px;
+            top: 50%;
+            right: 0; /* Mặc định bên phải */
+            transform: translateY(-50%);
+            width: 20px; height: 60px;
+            border-radius: 8px 0 0 8px;
+            font-size: 16px;
+            padding: 0;
+            background: #333;
+            border: 1px solid #444;
+            border-right: none;
             z-index: 99;
-            display: none;
+            display: none; /* Mặc định ẩn */
+        }
+        #showUIBtn.left {
+            right: auto;
+            left: 0;
+            border-radius: 0 8px 8px 0;
+            border-right: 1px solid #444;
+            border-left: none;
         }
 
         .image-info { 
             font-family: monospace; color: #eee; font-weight: bold;
             font-size: 14px;
-            padding: 0 10px;
         }
+        
+        /* Label cho nút */
+        .btn-label {
+            font-size: 10px;
+            color: #aaa;
+            margin-top: 5px;
+        }
+        .size-display {
+            font-size: 12px;
+            color: #999;
+            margin: 5px 0;
+        }
+        
+        /* Nút đang được chọn */
+        .tool-btn.active {
+            background: #00e5ff;
+            color: #000;
+        }
+        .tool-btn#eraser.active { background: #ff9800; }
+        .tool-btn#restore.active { background: #4CAF50; }
+        
     </style>
 </head>
 <body>
@@ -186,38 +271,44 @@
             </div>
         </div>
         
-        <button class="touch-btn" id="hideUIBtn" title="Ẩn UI" onclick="toggleUI(false)">⬇️</button>
-        <button class="touch-btn" id="showUIBtn" title="Hiện UI" onclick="toggleUI(true)">⬆️</button>
+        <div id="touchCursor"></div>
+        <div id="loupeDiv"></div>
+        
+        <button id="showUIBtn" onclick="toggleUI(true)">⟨</button>
 
-        <div class="toolbar-wrapper" id="toolbarWrapper">
-            <div class="toolbar">
-                <div class="toolbar-group">
-                    <button class="touch-btn btn-danger" onclick="location.reload()" title="Đổi Folder">🚪</button>
-                    <button class="touch-btn" onclick="prevImage()" title="Ảnh trước">⬅️</button>
-                    <div class="image-info" id="imgCounter">--</div>
-                    <button class="touch-btn" onclick="nextImage()" title="Ảnh sau">➡️</button>
-                </div>
-                <div class="toolbar-group">
-                    <button class="touch-btn" id="toolBtn" onclick="toggleTool()" title="Đổi Tool">🔎</button>
-                    <button class="touch-btn" id="viewBtn" ontouchstart="toggleView(true)" ontouchend="toggleView(false)" title="Giữ để xem Edit">👀</button>
-                </div>
-                <div class="toolbar-group">
-                    <button class="touch-btn" onclick="changeBrushSize(-20)" title="Giảm Cỡ">-</button>
-                    <span id="brushSizeDisplay" style="font-size: 14px; color: #999;">50px</span>
-                    <button class="touch-btn" onclick="changeBrushSize(20)" title="Tăng Cỡ">+</button>
-                </div>
-                <div class="toolbar-group">
-                    <button class="touch-btn" onclick="doZoom(false)" title="Thu nhỏ">➖</button>
-                    <button class="touch-btn" onclick="resetView()" title="Reset View">🎯</button>
-                    <button class="touch-btn" onclick="doZoom(true)" title="Phóng to">➕</button>
-                </div>
+        <div class="sidebar-wrapper" id="sidebarWrapper">
+            <div class="sidebar">
+                <button id="hideUIBtn" onclick="toggleUI(false)">⟩</button>
+            
+                <button class="tool-btn" onclick="prevImage()" title="Ảnh trước">⬅️</button>
+                <div class="image-info" id="imgCounter">--</div>
+                <button class="tool-btn" onclick="nextImage()" title="Ảnh sau">➡️</button>
+                
+                <div class="divider"></div>
+                
+                <button class="tool-btn" id="loupe" onclick="setTool('loupe')" title="Kính Lúp">🔎</button>
+                <button class="tool-btn" id="eraser" onclick="setTool('eraser')" title="Cục Tẩy">🧼</button>
+                <button class="tool-btn" id="restore" onclick="setTool('restore')" title="Khôi Phục">🖌️</button>
+                <button class="tool-btn" id="viewBtn" ontouchstart="toggleView(true)" ontouchend="toggleView(false)" title="Giữ để xem Edit">👀</button>
+                
+                <div class="divider"></div>
+                
+                <button class="tool-btn" onclick="changeBrushSize(20)" title="Tăng Cỡ">+</button>
+                <span class="size-display" id="brushSizeDisplay">50px</span>
+                <button class="tool-btn" onclick="changeBrushSize(-20)" title="Giảm Cỡ">-</button>
+                
+                <div class="divider"></div>
+
+                <button class="tool-btn" onclick="resetView()" title="Reset View (Zoom/Pan)">🎯</button>
+                <button class="tool-btn" onclick="resetDrawing()" title="Reset Ảnh (Xóa vết tẩy)">🔄</button>
+                <button class="tool-btn" onclick="swapSide()" title="Chuyển bên Trái/Phải">↔️</button>
             </div>
         </div>
     </div>
 
     <script>
-        let filePairs = []; 
-        let currentIndex = 0; 
+        let filePairs = [];
+        let currentIndex = 0;
 
         // --- DOM Elements ---
         const welcomeScreen = document.getElementById('welcomeScreen');
@@ -231,48 +322,57 @@
         const canvas = document.getElementById('gameCanvas');
         const ctx = canvas.getContext('2d');
         const imgCounter = document.getElementById('imgCounter');
-        const toolBtn = document.getElementById('toolBtn');
+        
+        // Công cụ
+        const touchCursor = document.getElementById('touchCursor');
+        const loupeDiv = document.getElementById('loupeDiv');
         const brushSizeDisplay = document.getElementById('brushSizeDisplay');
-        const toolbarWrapper = document.getElementById('toolbarWrapper');
+        const toolButtons = {
+            loupe: document.getElementById('loupe'),
+            eraser: document.getElementById('eraser'),
+            restore: document.getElementById('restore')
+        };
+
+        // UI Bar
+        const sidebarWrapper = document.getElementById('sidebarWrapper');
         const hideUIBtn = document.getElementById('hideUIBtn');
         const showUIBtn = document.getElementById('showUIBtn');
 
         // --- Logic Vars ---
         const imgOriginal = new Image();
+        let currentEditURL = ''; // Lưu URL ảnh Edit
         let brushSize = 50;
         let scale = 1; let panX = 0; let panY = 0;
-        let isDrawing = false; 
-        let lastPanX = 0; let lastPanY = 0;
+        
+        // Touch
+        const TOUCH_OFFSET_Y = -80; // Độ lệch của công cụ so với ngón tay
+        let isDrawing = false; // Đang vẽ 1 ngón
+        let isGesturing = false; // Đang zoom/pan 2 ngón
+        
+        // Pan 2 ngón
+        let lastPanMidpoint = null;
+        // Zoom 2 ngón
+        let lastPinchDist = 0;
 
         let currentTool = 'loupe';
-        let drawMode = 'erase';
         let isSwitching = false;
 
-        // --- CHỌN FILE (Regex linh hoạt) ---
+        // --- KHỞI ĐỘNG & CHỌN FILE ---
         fileInput.addEventListener('change', (e) => {
             const files = Array.from(e.target.files);
             let map = {};
-            
             const fileRegex = /(\d+)(o|e)\.(jpg|jpeg|png|webp)$/i;
-
             files.forEach(f => {
                 let m = f.name.toLowerCase().match(fileRegex);
                 if (m) {
-                    let id = parseInt(m[1]); 
-                    let type = m[2].toLowerCase();
+                    let id = parseInt(m[1]); let type = m[2].toLowerCase();
                     if (!map[id]) map[id] = {};
-                    
-                    if (!map[id][type] || f.name.length < map[id][type].name.length) {
-                        map[id][type] = f;
-                    }
+                    if (!map[id][type] || f.name.length < map[id][type].name.length) map[id][type] = f;
                 }
             });
-            
             filePairs = [];
             for (let id in map) {
-                if (map[id].o && map[id].e) {
-                    filePairs.push({ id: parseInt(id), o: map[id].o, e: map[id].e });
-                }
+                if (map[id].o && map[id].e) filePairs.push({ id: parseInt(id), o: map[id].o, e: map[id].e });
             }
             filePairs.sort((a, b) => a.id - b.id);
 
@@ -280,57 +380,53 @@
                 welcomeScreen.style.display = 'none';
                 gameUI.style.display = 'flex';
                 currentIndex = 0;
+                setTool('loupe'); // Đặt tool mặc định
                 loadPair(currentIndex);
             } else {
                 errorMsg.innerText = "Không tìm thấy cặp ảnh nào (ví dụ: 1o.jpg và 1e.jpg)";
             }
         });
 
-        // --- LOAD ẢNH (ĐÃ SỬA LỖI RACE CONDITION) ---
+        // --- LOAD ẢNH ---
         function loadPair(idx) {
-            if (idx < 0 || idx >= filePairs.length) {
-                isSwitching = false; // Mở khóa nếu lỡ bấm ra ngoài
-                return;
-            }
-            
+            if (idx < 0 || idx >= filePairs.length) { isSwitching = false; return; }
             statusMsg.style.display = 'block';
             const item = filePairs[idx];
             const urlO = URL.createObjectURL(item.o);
-            const urlE = URL.createObjectURL(item.e);
+            currentEditURL = URL.createObjectURL(item.e); // Lưu URL ảnh Edit
 
-            // 1. Gắn hàm xử lý 'onload' cho ảnh CHÍNH (imgOriginal) TRƯỚC
             imgOriginal.onload = () => {
                 canvas.width = imgOriginal.naturalWidth;
                 canvas.height = imgOriginal.naturalHeight;
                 stage.style.width = canvas.width + "px";
                 stage.style.height = canvas.height + "px";
                 
-                // Chỉ đặt ảnh nền KHI ảnh gốc đã tải xong
-                stage.style.backgroundImage = `url('${urlE}')`;
+                // Đặt nền cho Stage (lớp dưới)
+                stage.style.backgroundImage = `url('${currentEditURL}')`;
+                
+                // Đặt nền cho Kính Lúp (lớp trên)
+                loupeDiv.style.backgroundImage = `url('${currentEditURL}')`;
                 
                 resetView();
-                drawFullOriginal(); // Vẽ ảnh Original LÊN TRÊN Edit
-                statusMsg.style.display = 'none';
-                isSwitching = false; // Mở khóa
-            };
-
-            // 2. Gắn hàm xử lý lỗi
-            imgOriginal.onerror = () => {
+                drawFullOriginal(); // Vẽ ảnh Original
                 statusMsg.style.display = 'none';
                 isSwitching = false;
-                alert(`Lỗi: Không thể tải file ${item.id}o.jpg`);
-            }
-
-            // 3. Cập nhật text (Có thể làm ngay)
+            };
+            imgOriginal.onerror = () => { /*...*/ };
             imgCounter.innerText = `${item.id} (${idx + 1}/${filePairs.length})`;
-            
-            // 4. Ra lệnh tải ảnh (Bây giờ hàm onload đã sẵn sàng)
             imgOriginal.src = urlO;
         }
 
+        // --- HÀM VẼ & RESET ---
         function drawFullOriginal() {
             ctx.globalCompositeOperation = 'source-over';
-            ctx.drawImage(imgOriginal, 0, 0);
+            ctx.drawImage(imgOriginal, 0, 0, canvas.width, canvas.height);
+        }
+
+        function resetDrawing() {
+            if (confirm("Bạn có chắc muốn xóa hết vết tẩy và khôi phục ảnh gốc?")) {
+                drawFullOriginal();
+            }
         }
 
         function resetView() {
@@ -340,107 +436,185 @@
             panX = (vW - canvas.width * scale) / 2;
             panY = (vH - canvas.height * scale) / 2;
             updateTransform();
+            updateToolSize();
         }
 
-        function updateTransform() { stage.style.transform = `translate(${panX}px, ${panY}px) scale(${scale})`; }
+        function updateTransform() {
+            const transform = `translate(${panX}px, ${panY}px) scale(${scale})`;
+            stage.style.transform = transform;
+            
+            // Đồng bộ Kính Lúp với Pan/Zoom của ảnh
+            loupeDiv.style.backgroundSize = `${canvas.width * scale}px ${canvas.height * scale}px`;
+        }
 
-        // --- CÁC NÚT ĐIỀU KHIỂN ---
+        // --- THANH CÔNG CỤ & ĐIỀU KHIỂN ---
+        
         function changeBrushSize(amount) {
             brushSize += amount;
             if (brushSize < 10) brushSize = 10;
             if (brushSize > 500) brushSize = 500;
+            updateToolSize();
+        }
+        
+        // Cập nhật kích thước (và text)
+        function updateToolSize() {
             brushSizeDisplay.innerText = brushSize + "px";
+            touchCursor.style.width = brushSize + "px";
+            touchCursor.style.height = brushSize + "px";
+            loupeDiv.style.width = brushSize + "px";
+            loupeDiv.style.height = brushSize + "px";
         }
 
         function nextImage() {
-            if (isSwitching) return; // Kiểm tra khóa
+            if (isSwitching) return;
             if (currentIndex < filePairs.length - 1) {
-                isSwitching = true; // Đóng khóa
+                isSwitching = true;
                 currentIndex++;
                 loadPair(currentIndex);
             }
         }
-
         function prevImage() {
-            if (isSwitching) return; // Kiểm tra khóa
+            if (isSwitching) return;
             if (currentIndex > 0) {
-                isSwitching = true; // Đóng khóa
+                isSwitching = true;
                 currentIndex--;
                 loadPair(currentIndex);
             }
         }
 
-        function toggleTool() {
-            currentTool = (currentTool === 'loupe') ? 'eraser' : 'loupe';
-            if (currentTool === 'loupe') {
-                toolBtn.innerText = "🔎";
-                drawFullOriginal();
-            } else {
-                toolBtn.innerText = "🧼";
+        // Đổi Tool (Lúp, Tẩy, Khôi phục)
+        function setTool(toolName) {
+            currentTool = toolName;
+            
+            // Xóa active ở tất cả
+            Object.values(toolButtons).forEach(btn => btn.classList.remove('active'));
+            
+            // Thêm active cho nút được chọn
+            if (toolButtons[toolName]) {
+                toolButtons[toolName].classList.add('active');
             }
+            
+            // Cập nhật màu vòng tròn ảo
+            if (toolName === 'loupe') touchCursor.style.borderColor = '#00e5ff';
+            else if (toolName === 'eraser') touchCursor.style.borderColor = '#ff9800';
+            else if (toolName === 'restore') touchCursor.style.borderColor = '#4CAF50';
         }
-        
+
+        // Giữ để xem ảnh Edit
         function toggleView(showEdit) {
             canvas.style.opacity = showEdit ? '0' : '1';
         }
 
-        function doZoom(zoomIn) {
-            const zoomDir = zoomIn ? 1 : -1;
-            const zoomIntensity = 0.2;
-            const newScale = scale + (zoomDir * zoomIntensity * scale);
-            if (newScale >= 0.1 && newScale <= 50) {
-                const vW = viewport.clientWidth; const vH = viewport.clientHeight;
-                const mx = vW / 2; const my = vH / 2;
-                panX = mx - (mx - panX) * (newScale / scale);
-                panY = my - (my - panY) * (newScale / scale);
-                scale = newScale;
-                updateTransform();
-            }
-        }
-        
+        // Ẩn/Hiện thanh Bar
         function toggleUI(show) {
             if (show) {
-                toolbarWrapper.classList.remove('hidden');
-                hideUIBtn.style.display = 'block';
+                sidebarWrapper.classList.remove('hidden');
                 showUIBtn.style.display = 'none';
             } else {
-                toolbarWrapper.classList.add('hidden');
-                hideUIBtn.style.display = 'none';
+                sidebarWrapper.classList.add('hidden');
                 showUIBtn.style.display = 'block';
             }
         }
 
-        // --- XỬ LÝ CẢM ỨNG (TOUCH) ---
-        function getPos(touch) {
-            const r = viewport.getBoundingClientRect();
-            return { x: (touch.clientX - r.left - panX) / scale, y: (touch.clientY - r.top - panY) / scale };
+        // Đổi bên Trái/Phải
+        function swapSide() {
+            sidebarWrapper.classList.toggle('left');
+            showUIBtn.classList.toggle('left');
+            // Cập nhật lại nút Ẩn (vì nút này nằm bên trong bar)
+            if (sidebarWrapper.classList.contains('left')) {
+                hideUIBtn.innerHTML = '⟨';
+            } else {
+                hideUIBtn.innerHTML = '⟩';
+            }
         }
 
-        function applyTool(touch) {
-            const p = getPos(touch);
-            const r = brushSize / 2; 
+        // --- XỬ LÝ CẢM ỨNG (TOUCH) ---
+        
+        // Hàm tính tọa độ tương đối trên ảnh
+        function getPosOnImage(clientX, clientY) {
+            const r = viewport.getBoundingClientRect();
+            // Tọa độ tương đối so với viewport
+            const viewX = clientX - r.left;
+            const viewY = clientY - r.top;
+            // Tọa độ thực trên ảnh (đã trừ pan/zoom)
+            return { 
+                x: (viewX - panX) / scale, 
+                y: (viewY - panY) / scale 
+            };
+        }
 
+        // Hàm áp dụng công cụ (Vẽ, Tẩy, Lúp)
+        function applyTool(clientX, clientY) {
+            // 1. Tính tọa độ "chạm lệch" (nơi công cụ xuất hiện)
+            const toolX = clientX;
+            const toolY = clientY + TOUCH_OFFSET_Y;
+            
+            // 2. Hiển thị vòng tròn ảo tại đó
+            touchCursor.style.left = toolX + 'px';
+            touchCursor.style.top = toolY + 'px';
+            touchCursor.style.display = 'block';
+            
+            // 3. Tính tọa độ tương ứng trên ảnh
+            const imgPos = getPosOnImage(toolX, toolY);
+            
             if (currentTool === 'loupe') {
-                ctx.globalCompositeOperation = 'source-over';
-                ctx.drawImage(imgOriginal, 0, 0);
+                // Di chuyển Kính Lúp
+                loupeDiv.style.left = toolX + 'px';
+                loupeDiv.style.top = toolY + 'px';
+                loupeDiv.style.display = 'block';
+                // Căn nền của Kính Lúp
+                const bgX = (-imgPos.x * scale) + (brushSize / 2);
+                const bgY = (-imgPos.y * scale) + (brushSize / 2);
+                loupeDiv.style.backgroundPosition = `${bgX}px ${bgY}px`;
+                
+            } else if (currentTool === 'eraser') {
+                // Tẩy (Đục lỗ canvas)
                 ctx.globalCompositeOperation = 'destination-out';
-                ctx.beginPath(); ctx.arc(p.x, p.y, r, 0, Math.PI*2); ctx.fill();
-            } else {
-                ctx.globalCompositeOperation = 'destination-out';
-                ctx.beginPath(); ctx.arc(p.x, p.y, r, 0, Math.PI*2);
+                ctx.beginPath();
+                ctx.arc(imgPos.x, imgPos.y, brushSize / 2 / scale, 0, Math.PI * 2);
                 ctx.fill();
+                
+            } else if (currentTool === 'restore') {
+                // Khôi phục (Vẽ lại ảnh gốc)
+                ctx.globalCompositeOperation = 'source-over';
+                ctx.beginPath();
+                ctx.arc(imgPos.x, imgPos.y, brushSize / 2 / scale, 0, Math.PI * 2);
+                ctx.save();
+                ctx.clip(); // Chỉ vẽ trong vòng tròn
+                ctx.drawImage(imgOriginal, 0, 0);
+                ctx.restore();
             }
         }
         
+        // --- BỘ LẮNG NGHE SỰ KIỆN TOUCH ---
+
         viewport.addEventListener('touchstart', e => {
             if (e.touches.length === 1) {
+                // 1 ngón: Bắt đầu vẽ
+                e.preventDefault();
                 isDrawing = true;
-                drawMode = 'erase';
-                applyTool(e.touches[0]);
+                applyTool(e.touches[0].clientX, e.touches[0].clientY);
+                
             } else if (e.touches.length === 2) {
-                isDrawing = false;
-                lastPanX = (e.touches[0].clientX + e.touches[1].clientX) / 2;
-                lastPanY = (e.touches[0].clientY + e.touches[1].clientY) / 2;
+                // 2 ngón: Bắt đầu Pan/Zoom
+                e.preventDefault();
+                isDrawing = false; // Ngừng vẽ
+                isGesturing = true;
+                
+                // Ẩn công cụ
+                touchCursor.style.display = 'none';
+                loupeDiv.style.display = 'none';
+
+                // Lưu điểm bắt đầu Pan
+                lastPanMidpoint = {
+                    x: (e.touches[0].clientX + e.touches[1].clientX) / 2,
+                    y: (e.touches[0].clientY + e.touches[1].clientY) / 2
+                };
+                // Lưu khoảng cách bắt đầu Zoom
+                lastPinchDist = Math.hypot(
+                    e.touches[1].clientX - e.touches[0].clientX,
+                    e.touches[1].clientY - e.touches[0].clientY
+                );
             }
         }, { passive: false });
 
@@ -448,21 +622,54 @@
             e.preventDefault();
             
             if (isDrawing && e.touches.length === 1) {
-                applyTool(e.touches[0]);
-            } else if (e.touches.length === 2) {
-                const newPanX = (e.touches[0].clientX + e.touches[1].clientX) / 2;
-                const newPanY = (e.touches[0].clientY + e.touches[1].clientY) / 2;
-                panX += (newPanX - lastPanX);
-                panY += (newPanY - lastPanY);
-                lastPanX = newPanX;
-                lastPanY = newPanY;
+                // 1 ngón: Đang vẽ
+                applyTool(e.touches[0].clientX, e.touches[0].clientY);
+                
+            } else if (isGesturing && e.touches.length === 2) {
+                // 2 ngón: Đang Pan/Zoom
+                
+                // 1. Tính toán Pan
+                const newMidpoint = {
+                    x: (e.touches[0].clientX + e.touches[1].clientX) / 2,
+                    y: (e.touches[0].clientY + e.touches[1].clientY) / 2
+                };
+                panX += newMidpoint.x - lastPanMidpoint.x;
+                panY += newMidpoint.y - lastPanMidpoint.y;
+                lastPanMidpoint = newMidpoint; // Cập nhật điểm cuối
+
+                // 2. Tính toán Zoom
+                const newPinchDist = Math.hypot(
+                    e.touches[1].clientX - e.touches[0].clientX,
+                    e.touches[1].clientY - e.touches[0].clientY
+                );
+                const scaleDelta = newPinchDist / lastPinchDist;
+                
+                // Tính toán điểm neo để zoom tại chỗ
+                const newScale = scale * scaleDelta;
+                if (newScale >= 0.1 && newScale <= 50) {
+                    const rect = viewport.getBoundingClientRect();
+                    const mx = newMidpoint.x - rect.left;
+                    const my = newMidpoint.y - rect.top;
+                    
+                    panX = mx - (mx - panX) * scaleDelta;
+                    panY = my - (my - panY) * scaleDelta;
+                    scale = newScale;
+                }
+                lastPinchDist = newPinchDist; // Cập nhật khoảng cách cuối
+
+                // 3. Cập nhật giao diện
                 updateTransform();
             }
         }, { passive: false });
 
         viewport.addEventListener('touchend', e => {
             isDrawing = false;
-            if (currentTool === 'loupe') drawFullOriginal();
+            isGesturing = false;
+            lastPanMidpoint = null;
+            
+            // Ẩn công cụ
+            touchCursor.style.display = 'none';
+            loupeDiv.style.display = 'none';
         });
 
     </script>
