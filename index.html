@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Image Viewer Pro (vFinal)</title>
+    <title>Image Viewer Pro (vFinal-Fix)</title>
     <style>
         /* CSS Reset cho di động */
         * {
@@ -15,7 +15,7 @@
             -webkit-touch-callout: none;
         }
         body {
-            background-color: #121212;
+            background-color: #121212; /* Nền ĐEN (Không phải trắng) */
             color: #ccc;
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
             height: 100vh;
@@ -324,6 +324,7 @@
             const files = Array.from(e.target.files);
             let map = {};
             
+            // === SỬA LỖI Ở ĐÂY ===
             // Regex siêu linh hoạt: Tìm BẤT KỲ TÊN NÀO miễn là kết thúc bằng o/e.jpg
             const fileRegex = /(.+)(o|e)\.(jpg|jpeg|png|webp)$/i; 
 
@@ -371,6 +372,7 @@
             const urlO = URL.createObjectURL(item.o);
             currentEditURL = URL.createObjectURL(item.e); // Lưu URL ảnh Edit
 
+            // 1. Gắn hàm xử lý 'onload' TRƯỚC
             imgOriginal.onload = () => {
                 canvas.width = imgOriginal.naturalWidth;
                 canvas.height = imgOriginal.naturalHeight;
@@ -381,16 +383,20 @@
                 loupeDiv.style.backgroundImage = `url('${currentEditURL}')`;
                 
                 resetView();
-                drawFullOriginal();
+                drawFullOriginal(); // Vẽ ảnh Gốc
                 statusMsg.style.display = 'none';
-                isSwitching = false;
+                isSwitching = false; // Mở khóa
             };
+            // 2. Gắn hàm xử lý lỗi
             imgOriginal.onerror = () => { 
                 statusMsg.style.display = 'none';
                 isSwitching = false;
                 alert(`Lỗi: Không thể tải file ${item.o.name}`);
              };
+            // 3. Cập nhật text
             imgCounter.innerText = `${item.id} (${idx + 1}/${filePairs.length})`;
+            
+            // 4. Ra lệnh tải
             imgOriginal.src = urlO;
         }
 
